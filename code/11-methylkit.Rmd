@@ -1,0 +1,95 @@
+---
+title: "11-methylkit"
+output: html_document
+date: "2025-09-17"
+---
+---
+title: "14-methylkit"
+output: html_document
+date: "2025-08-10"
+---
+INSTALL OLD VERSIONS
+
+```{r}
+install.packages("remotes")  # if not already installed
+remotes::install_version("data.table", version = "1.16.4")
+```
+
+
+
+```{r}
+install.packages("remotes")
+remotes::install_version("data.table", version = "1.14.10")  # or 1.14.8
+# restart R, then load methylKit
+library(methylKit)
+```
+
+```{r}
+library(methylKit)
+```
+
+
+
+```{r}
+myobj_23 <- methRead(
+  location  = list(
+    "../output/07-nextflow/bismark/coverage2cytosine/coverage/Caligus_Female_11.CpG_report.merged_CpG_evidence.cov.gz",
+    "../output/07-nextflow/bismark/coverage2cytosine/coverage/Caligus_Female_22.CpG_report.merged_CpG_evidence.cov.gz",
+    "../output/07-nextflow/bismark/coverage2cytosine/coverage/Caligus_Female_33.CpG_report.merged_CpG_evidence.cov.gz",
+    "../output/07-nextflow/bismark/coverage2cytosine/coverage/Caligus_Male_1.CpG_report.merged_CpG_evidence.cov.gz",
+    "../output/07-nextflow/bismark/coverage2cytosine/coverage/Caligus_Male_2.CpG_report.merged_CpG_evidence.cov.gz",
+    "../output/07-nextflow/bismark/coverage2cytosine/coverage/Caligus_Male_3.CpG_report.merged_CpG_evidence.cov.gz"
+  ),
+  sample.id = list(
+    "Caligus_Female_11", "Caligus_Female_22", "Caligus_Female_33",
+    "Caligus_Male_1", "Caligus_Male_2", "Caligus_Male_3"
+  ),
+  assembly  = "Mt",
+  pipeline  = "bismarkCoverage",
+  context   = "CpG",
+  mincov    = 2,
+  treatment = c(
+    0, 0, 0,  # Females
+    1, 1, 1   # Males
+  )
+)
+
+```
+
+
+
+
+```{r}
+filtered.myobj <- filterByCoverage(myobj_23, lo.count=10, hi.perc=98)
+meth_filter <- unite(filtered.myobj, min.per.group=3L, destrand=FALSE)
+```
+
+
+```{r}
+ clusterSamples(meth_filter, dist="correlation", method="ward", plot=TRUE)
+ PCASamples(meth_filter)
+```
+
+
+
+```{r}
+## 2) Fit methylKitâ€™s perâ€‘CpG logistic regression (overdispersion helps real data)
+dmr_fit <- calculateDiffMeth(
+  meth_filter,
+  overdispersion = "MN",  # â€œMNâ€ or â€œnoneâ€; MN is robust
+  test           = "Chisq",
+  adjust         = "SLIM",# or "BH"
+  mc.cores       = 48      # adjust to your CPU
+)
+
+## 3) Extract significant DMLs
+# difference is absolute % methylation difference (treatment - control)
+dml_all  <- getMethylDiff(dmr_fit, qvalue = 0.05, difference = 25, type = "all")
+dml_hypo <- getMethylDiff(dmr_fit, qvalue = 0.05, difference = 25, type = "hypo")  # lower in treatment
+dml_hyper<- getMethylDiff(dmr_fit, qvalue = 0.05, difference = 25, type = "hyper") # higher in treatment
+
+## 4) Save results
+dml_df <- as.data.frame(dml_all)
+dir.create("../output/11-methylkit", recursive = TRUE, showWarnings = FALSE)
+write.table(dml_df, "../output/11-methylkit/DML_all_q0.05_diff25.tsv", sep="\t", quote=FALSE, row.names=FALSE)
+```
